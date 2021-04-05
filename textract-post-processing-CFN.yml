@@ -1,0 +1,188 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+"Description":"Textract data post-processing with comprehend sentiment detection Application Stack.  **Attention** This template creates AWS resources that will incur charges on your account.",
+Transform:
+- AWS::Serverless-2016-10-31
+Parameters:
+  BucketName:
+    Type: String
+    Default: bucket-for-test
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .pdf
+            Function: !GetAtt TextractInvocationLambda.Arn
+  TextractInvocationLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Triggered by S3 review upload to the repo bucket and start the textract call.
+      Handler: textract-invocation.lambda_handler
+      MemorySize: 128
+      Role: !GetAtt
+        - TextractProcessingRole
+        - Arn
+      Environment:
+        Variables:
+          SNSTOPIC:
+            Ref: SNS
+          IAMARN:
+            Fn::GetAtt:
+              - TextractProcessingRole
+              - Arn
+      Runtime: python3.6
+      Timeout: 600
+      CodeUri: s3://bucket-for-datalab/textract-blog-source-code.zip
+  TextractPostProcessLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Triggered by notification from Textract after the job has been completed
+      Handler: paragraph-identification.lambda_handler
+      MemorySize: 128
+      Role: !GetAtt
+        - TextractProcessingRole
+        - Arn
+      Runtime: python3.6
+      Timeout: 600
+      CodeUri: s3://bucket-for-datalab/textract-blog-source-code.zip
+  SNS:
+    Type: AWS::SNS::Topic
+  S3InvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref TextractInvocationLambda
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub arn:aws:s3:::${BucketName}
+  SNSInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref TextractPostProcessLambda
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref SNS
+  TextractProcessingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - textract.amazonaws.com
+                - comprehend.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: PolicyForRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketNotification
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${BucketName}
+                  - !Sub arn:aws:s3:::${BucketName}/*
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:dynamodb:'
+                      - !Ref 'AWS::Region'
+                      - ':'
+                      - !Ref 'AWS::AccountId'
+                      - ':table/textract-job-details'
+                  - !Join
+                    - ''
+                    - - 'arn:aws:dynamodb:'
+                      - !Ref 'AWS::Region'
+                      - ':'
+                      - !Ref 'AWS::AccountId'
+                      - ':table/textract-post-process-data'
+              - Effect: Allow
+                Action:
+                  - textract:DetectDocumentText
+                  - textract:StartDocumentTextDetection
+                  - textract:StartDocumentAnalysis
+                  - textract:AnalyzeDocument
+                  - textract:GetDocumentTextDetection
+                  - textract:GetDocumentAnalysis
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - comprehend:DetectSentiment
+                  - comprehend:DetectKeyPhrases
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                  - sns:Subscribe
+                Resource:
+                  - !Ref SNS
+  Subscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      Endpoint: !GetAtt
+        - TextractPostProcessLambda
+        - Arn
+      Protocol: lambda
+      TopicArn: !Ref SNS
+  DynamoParagraphDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "file_path"
+          AttributeType: "S"
+        - AttributeName: "paragraph_header"
+          AttributeType: "S"
+      BillingMode: "PAY_PER_REQUEST"
+      KeySchema:
+        - AttributeName: "file_path"
+          KeyType: "HASH"
+        - AttributeName: "paragraph_header"
+          KeyType: "RANGE"
+      TableName: "textract-post-process-data"
+  DynamoTextractJobStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "file_path"
+          AttributeType: "S"
+        - AttributeName: "job_id"
+          AttributeType: "S"
+      BillingMode: "PAY_PER_REQUEST"
+      KeySchema:
+        - AttributeName: "file_path"
+          KeyType: "HASH"
+        - AttributeName: "job_id"
+          KeyType: "RANGE"
+      TableName: "textract-job-details"
