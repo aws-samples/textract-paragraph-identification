@@ -9,6 +9,7 @@ import os
 
 textract_client = boto3.client("textract")
 
+
 def lambda_handler(event, context):
     notification_message = json.loads(event['Records'][0]['Sns']['Message'])
 
@@ -19,9 +20,11 @@ def lambda_handler(event, context):
 
     job_status = notification_message['Status']
     completed_time_stamp = notification_message['Timestamp'] / 1000
-    completed_time = datetime.fromtimestamp(completed_time_stamp).strftime('%Y-%m-%d %H:%M:%S')
+    completed_time = datetime.fromtimestamp(
+        completed_time_stamp).strftime('%Y-%m-%d %H:%M:%S')
 
-    lambda_helper.update_metadata_with_status(job_id, document_path, job_status, completed_time)
+    lambda_helper.update_metadata_with_status(
+        job_id, document_path, job_status, completed_time)
     total_text_with_info = lambda_helper.get_text_results_from_textract(job_id)
 
     headers, header_and_its_line_numbers = get_headers_info(
@@ -39,6 +42,11 @@ def lambda_handler(event, context):
     return json.dumps(headers_to_paragraphs)
 
 
+'''
+This method is used for the pages where headers and paragraphs start a different line indent.
+Takes the input of header indentation and paragraph indentation.
+'''
+
 def get_headers_info(total_text_with_info,
                      header_start_indent=0.1,
                      header_ending_indent=0.14):
@@ -53,6 +61,10 @@ def get_headers_info(total_text_with_info,
     return headers, header_and_its_line_numbers
 
 
+'''
+This method takes the line numbers of headers and total text as input.
+For each header, it collects the text till the start of next header and assigns them as paragraph data
+'''
 def get_header_to_paragraph_data(header_and_its_line_numbers,
                                  total_text_with_info):
     header_list_iterator = iter(header_and_its_line_numbers)
