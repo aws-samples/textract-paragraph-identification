@@ -6,10 +6,8 @@ import boto3
 textract_client = boto3.client("textract")
 comprehend = boto3.client("comprehend")
 
-'''
-This method updates textract-job-details DynamoDB table to store the information about job run history.
-'''
-def update_metadata_with_status(job_id, document_path, job_status, completed_time):
+
+def update_metadata_with_status(job_id,document_path,job_status,completed_time):
     job_status_table = boto3.resource('dynamodb').Table("textract-job-details")
     job_status_table.update_item(
         Key={
@@ -17,23 +15,9 @@ def update_metadata_with_status(job_id, document_path, job_status, completed_tim
             'job_id': job_id
         },
         UpdateExpression="SET job_status = :job_status, completed_time = :timestamp",
-        ExpressionAttributeValues={
-            ':job_status': job_status, ':timestamp': completed_time}
+        ExpressionAttributeValues={':job_status': job_status, ':timestamp': completed_time}
     )
 
-
-'''
-This method is used for page with Headers and Text with same left indentation but different font.
-
-This method takes text metadata collected and identifies different font sizes.
-Based on the size of the font, it separates the text. 
-
-Once the text is separated, it uses font size to identify headers at different levels.
-Filters out all the headers that does not have any text after them.
-
-
-
-'''
 
 def get_headers_to_child_mapping(font_sizes_and_line_numbers):
     unique_font_heights = []
@@ -51,11 +35,6 @@ def get_headers_to_child_mapping(font_sizes_and_line_numbers):
     return headers_and_its_child
 
 
-'''
-This method takes job id generated at the time of Textract call as input
-Textracts provides one page response per call and API will be called repeatedly until there are no more pages.
-This returns complete text collected by Textract as response.
-'''
 def get_text_results_from_textract(job_id):
     response = textract_client.get_document_text_detection(JobId=job_id)
     collection_of_textract_responses = []
@@ -65,18 +44,11 @@ def get_text_results_from_textract(job_id):
 
     while 'NextToken' in response:
         next_token = response['NextToken']
-        response = textract_client.get_document_text_detection(
-            JobId=job_id, NextToken=next_token)
+        response = textract_client.get_document_text_detection(JobId=job_id, NextToken=next_token)
         pages.append(response)
         collection_of_textract_responses.append(response)
     return collection_of_textract_responses
 
-
-'''
-This method takes the complete textract response as an input and iterates through all the pages and collects Lines and required bounding box info.
-Once the lines are extracted, a running sequence number is used to set the line numbers.
-The line numbers, left indentation information, indentation from top and font size will be extracted from Textract raw response.
-'''
 
 def get_the_text_with_required_info(collection_of_textract_responses):
     total_text = []
@@ -93,14 +65,14 @@ def get_the_text_with_required_info(collection_of_textract_responses):
                 running_sequence_number += 1
                 block_text_dict.update(text=block['Text'])
                 block_text_dict.update(page=block['Page'])
-                block_text_dict.update(left_indent=round(
-                    block['Geometry']['BoundingBox']['Left'], 2))
-                font_height = round(
-                    block['Geometry']['BoundingBox']['Height'], 3)
+                block_text_dict.update(left_indent=round(block['Geometry']['BoundingBox']['Left'], 2))
+                font_height = round(block['Geometry']['BoundingBox']['Height'], 3)
                 line_number = running_sequence_number
-                block_text_dict.update(font_height=round(
-                    block['Geometry']['BoundingBox']['Height'], 3))
+                block_text_dict.update(font_height=round(block['Geometry']['BoundingBox']['Height'], 3))
+                block_text_dict.update(indent_from_top=round(block['Geometry']['BoundingBox']['Top'], 2))
+                block_text_dict.update(text_width=round(block['Geometry']['BoundingBox']['Width'], 2))
                 block_text_dict.update(line_number=running_sequence_number)
+
 
                 if font_height in font_sizes_and_line_numbers:
                     line_numbers = font_sizes_and_line_numbers[font_height]
@@ -117,14 +89,52 @@ def get_the_text_with_required_info(collection_of_textract_responses):
 
     return total_text_with_info, font_sizes_and_line_numbers
 
+def get_text_with_line_spacing_info(total_text_with_info):
+    i = 1
+    text_info_with_line_spacing_info = []
+    while (i < len(total_text_with_info) - 1):
+        previous_line_info = total_text_with_info[i - 1]
+        current_line_info = total_text_with_info[i]
+        next_line_info = total_text_with_info[i + 1]
+        if current_line_info['page'] == next_line_info['page'] and previous_line_info['page'] == current_line_info[
+            'page']:
+            line_spacing_after = round((next_line_info['indent_from_top'] - current_line_info['indent_from_top']), 2)
+            spacing_with_prev = round((current_line_info['indent_from_top'] - previous_line_info['indent_from_top']), 2)
+            current_line_info.update(line_space_before=spacing_with_prev)
+            current_line_info.update(line_space_after=line_spacing_after)
+            text_info_with_line_spacing_info.append(current_line_info)
+        else:
+            text_info_with_line_spacing_info.append(None)
+        i += 1
+    return text_info_with_line_spacing_info
 
-'''
-This method takes the headers to paragraphs information and runs sentiment analysis using Comprehend.
-The headers and their corresponding paragraph text with sentiment will be stored in DynamoDB table.
-'''
+def extract_paragraphs_only(data):
+    paras = []
+    i = 0
+    paragraph_data = []
+    while i < len(data):
+        print(i)
+        line = data[i]
+        if line:
+            if line['line_space_before'] > line['line_space_after']:
+                paras.append(''.join(paragraph_data))
+                paragraph_data = []
+                paragraph_data.append(line['text'])
+                if i < len(data)-1:
+                    next_line = data[i + 1]
+                    if next_line and line['text_width'] > next_line['text_width']/2:
+                        paragraph_data.append(next_line['text'])
+                        i += 1
+                    else:
+                        paras.append(' '.join(paragraph_data))
+                        paragraph_data = []
+            else:
+                paragraph_data.append(line['text'])
+        i += 1
+    return paras
+
 def update_paragraphs_info_in_dynamodb(headers_to_paragraphs, document_path):
-    textract_post_process_table = boto3.resource(
-        'dynamodb').Table("textract-post-process-data")
+    textract_post_process_table = boto3.resource('dynamodb').Table("textract-post-process-data")
     for identified_header in headers_to_paragraphs.keys():
         print("inserting data for {}".format(identified_header))
         paragraph_sentiment = comprehend.detect_sentiment(
