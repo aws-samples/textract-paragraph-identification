@@ -133,6 +133,22 @@ def extract_paragraphs_only(data):
         i += 1
     return paras
 
+def get_paragraphs_based_on_period(data):
+    paragraph_data = []
+    paras = []
+    i = 0
+    while i < len(data):
+        line = data[i]
+        if line:
+            if line['text'][-1] == '.':
+                paragraph_data.append(line['text'])
+                paras.append(' '.join(paragraph_data))
+                paragraph_data = []
+            else:
+                paragraph_data.append(line['text'])
+        i += 1
+    return paras
+
 def update_paragraphs_info_in_dynamodb(headers_to_paragraphs, document_path):
     textract_post_process_table = boto3.resource('dynamodb').Table("textract-post-process-data")
     for identified_header in headers_to_paragraphs.keys():
