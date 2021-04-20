@@ -25,7 +25,8 @@ def lambda_handler(event, context):
 
     lambda_helper.update_metadata_with_status(
         job_id, document_path, job_status, completed_time)
-    total_text_with_info = lambda_helper.get_text_results_from_textract(job_id)
+    collection_of_textract_responses = lambda_helper.get_text_results_from_textract(job_id)
+    total_text_with_info, font_sizes_and_line_numbers = lambda_helper.get_the_text_with_required_info(collection_of_textract_responses)
 
     headers, header_and_its_line_numbers = get_headers_info(
         total_text_with_info)
