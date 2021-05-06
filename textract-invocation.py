@@ -44,6 +44,7 @@ def lambda_handler(event, context):
 
     print("record has been inserted into dynamodb table {}".format("textract-job-details"))
 
+    
     return {
         'statusCode': 200,
         'body': json.dumps(db_response)
