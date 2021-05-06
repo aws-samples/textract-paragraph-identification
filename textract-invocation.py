@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 import os
 
+
 def lambda_handler(event, context):
     textract_client = boto3.client('textract')
     textract_job_details_table = boto3.resource('dynamodb').Table("textract-job-details")
