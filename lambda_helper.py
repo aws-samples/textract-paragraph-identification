@@ -163,3 +163,4 @@ def update_paragraphs_info_in_dynamodb(headers_to_paragraphs, document_path):
                   'paragraph_data': headers_to_paragraphs[identified_header],
                   'paragraph_sentiment': paragraph_sentiment['Sentiment']
                   })
+        
