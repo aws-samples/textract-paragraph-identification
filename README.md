@@ -1,15 +1,13 @@
-## My Project
+## textract-paragraph-identification
 
-TODO: Fill this README out!
+This repository contains some examples on how to extract insights from the Textract output.
+We have showed examples to extract headers, paragraphs and footers based on the font size, indentation and paragraph endings and line separators.
 
-Be sure to:
+***Note: This is not a solution for all the types of paragraphs/text segments. ***
 
-* Change the title in this README
-* Edit your repository description on GitHub
+Here we took examples of some of the files we have worked with, and this only gives guidance on how to use metadata provided by Textract.
 
-## Security
-
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+Also, once the segments were identified we are using Amazon Comprehend to get sentiment. 
 
 ## License
 
